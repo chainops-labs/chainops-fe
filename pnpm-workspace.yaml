@@ -1,4 +1,6 @@
 allowBuilds:
+  '@sentry/cli': true
+  chromedriver: true
   cypress: true
   sharp: true
   unrs-resolver: true
