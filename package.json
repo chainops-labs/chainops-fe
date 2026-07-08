@@ -1,6 +1,7 @@
 {
   "name": "chainops-fe",
   "version": "0.1.0",
+  "packageManager": "pnpm@11.0.4",
   "private": true,
   "scripts": {
     "dev": "next dev",
