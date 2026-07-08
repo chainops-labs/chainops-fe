@@ -1,19 +1,19 @@
 # chainops-fe
 
-Next.js operations console for ChainOps incident and deployment workflows.
+ChainOps의 장애와 배포 운영 콘솔입니다.
 
-## Stack
+## 기술 스택
 
-- React latest + React Compiler
+- React 최신 버전 + React Compiler
 - TypeScript
 - Next.js App Router
 - ky API client
 - GitHub Actions CI
 
-## Features
+## 주요 기능
 
-- Incident queue.
-- Deployment history view.
-- Rollback checklist.
-- MTTR summary.
-- Links to external log search pages.
+- 장애 목록
+- 배포 이력 화면
+- rollback checklist
+- MTTR 요약
+- 외부 로그 검색 페이지 링크
