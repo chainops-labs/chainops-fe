@@ -1,63 +1,40 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
-import { DeployEvent, Incident, incidentApi, RollbackCheck } from "@/features/incidents";
+import { DeployEvent, DeployTarget, Incident, incidentApi, RollbackCheck } from "@/features/incidents";
 
-const fallbackIncidents: Incident[] = [
-  {
-    id: "7b5d3f71-6b51-4cc8-a4db-cc8aa6210031",
-    title: "Verifier API latency after deploy",
-    severity: "SEV2",
-    status: "MITIGATING",
-    mttrMinutes: 18,
-  },
-  {
-    id: "4fc14c36-c4b1-4499-8a1b-a1bb10e31241",
-    title: "Argo CD sync drift",
-    severity: "SEV3",
-    status: "RESOLVED",
-    mttrMinutes: 9,
-  },
-];
+const emptyTargetForm = {
+  serviceName: "",
+  repositoryUrl: "",
+  healthUrl: "",
+  namespace: "chainops-prod",
+  environment: "production",
+};
 
-const fallbackDeployEvents: DeployEvent[] = [
-  {
-    id: "deploy-42",
-    serviceName: "verifier-api",
-    commitSha: "8f3a2c1",
-    imageTag: "verifier-api:2026.07.08",
-    status: "SYNCED",
-    deployedAt: "2026-07-08T09:58:00Z",
-  },
-];
+const formatDuration = (minutes: number) => {
+  const totalSeconds = Math.round(minutes * 60);
+  const displayMinutes = Math.floor(totalSeconds / 60);
+  const displaySeconds = totalSeconds % 60;
 
-const fallbackRollbackChecks: RollbackCheck[] = [
-  {
-    id: "rb-local-1",
-    incidentId: fallbackIncidents[0].id,
-    item: "직전 정상 image tag 확인",
-    checked: true,
-  },
-  {
-    id: "rb-local-2",
-    incidentId: fallbackIncidents[0].id,
-    item: "Argo CD sync 상태 확인",
-    checked: false,
-  },
-  {
-    id: "rb-local-3",
-    incidentId: fallbackIncidents[0].id,
-    item: "ELK trace link로 에러 범위 확인",
-    checked: false,
-  },
-];
+  return `${displayMinutes}m ${displaySeconds}s`;
+};
+
+const panelClassName = "overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm";
+const panelHeaderClassName = "border-b border-zinc-200 bg-zinc-50 px-5 py-3 font-medium";
+const rowClassName = "grid gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start";
+const badgeClassName = "inline-flex h-6 items-center rounded-md bg-zinc-900 px-2 text-xs font-medium text-white";
+const secondaryButtonClassName = "inline-flex h-8 items-center rounded-md border border-zinc-300 px-3 text-sm hover:bg-zinc-50";
+const mutedTextClassName = "break-all text-sm leading-6 text-zinc-600";
 
 const Home = () => {
-  const [incidents, setIncidents] = useState<Incident[]>(fallbackIncidents);
-  const [deployEvents, setDeployEvents] = useState<DeployEvent[]>(fallbackDeployEvents);
-  const [rollbackChecks, setRollbackChecks] = useState<RollbackCheck[]>(fallbackRollbackChecks);
-  const [averageMttr, setAverageMttr] = useState(14);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [deployTargets, setDeployTargets] = useState<DeployTarget[]>([]);
+  const [deployEvents, setDeployEvents] = useState<DeployEvent[]>([]);
+  const [rollbackChecks, setRollbackChecks] = useState<RollbackCheck[]>([]);
+  const [averageMttr, setAverageMttr] = useState(0);
+  const [error, setError] = useState("");
+  const [targetForm, setTargetForm] = useState(emptyTargetForm);
 
   const activeIncident = incidents[0];
   const completion = useMemo(() => {
@@ -67,25 +44,59 @@ const Home = () => {
 
   useEffect(() => {
     const load = async () => {
-      const loadedIncidents = await incidentApi.list().catch(() => fallbackIncidents);
-      setIncidents(loadedIncidents);
-      setDeployEvents(await incidentApi.deployEvents().catch(() => fallbackDeployEvents));
-      const metric = await incidentApi.mttr().catch(() => ({ averageMinutes: 14, sampleSize: 2 }));
-      setAverageMttr(Math.round(metric.averageMinutes));
-      const incidentId = loadedIncidents[0]?.id ?? fallbackIncidents[0].id;
-      setRollbackChecks(await incidentApi.rollbackChecks(incidentId).catch(() => fallbackRollbackChecks));
+      try {
+        const [loadedIncidents, loadedDeployTargets, loadedDeployEvents, metric] = await Promise.all([
+          incidentApi.list(),
+          incidentApi.deployTargets(),
+          incidentApi.deployEvents(),
+          incidentApi.mttr(),
+        ]);
+
+        setIncidents(loadedIncidents);
+        setDeployTargets(loadedDeployTargets);
+        setDeployEvents(loadedDeployEvents);
+        setAverageMttr(metric.averageMinutes);
+        setRollbackChecks(loadedIncidents[0] ? await incidentApi.rollbackChecks(loadedIncidents[0].id) : []);
+        setError("");
+      } catch {
+        setError("운영 API 연결 실패");
+      }
     };
 
     void load();
   }, []);
 
-  const toggleRollbackCheck = async (check: RollbackCheck) => {
-    const updated = await incidentApi.updateRollbackCheck(check.id, !check.checked).catch(() => ({
-      ...check,
-      checked: !check.checked,
-    }));
+  const registerDeployTarget = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
 
-    setRollbackChecks((items) => items.map((item) => item.id === updated.id ? updated : item));
+    try {
+      const created = await incidentApi.createDeployTarget(targetForm);
+      setDeployTargets((items) => [created, ...items]);
+      setTargetForm(emptyTargetForm);
+      setError("");
+    } catch {
+      setError("배포 대상 등록 실패");
+    }
+  };
+
+  const removeDeployTarget = async (id: string) => {
+    try {
+      await incidentApi.deleteDeployTarget(id);
+      setDeployTargets((items) => items.filter((item) => item.id !== id));
+      setError("");
+    } catch {
+      setError("배포 대상 삭제 실패");
+    }
+  };
+
+  const toggleRollbackCheck = async (check: RollbackCheck) => {
+    try {
+      const updated = await incidentApi.updateRollbackCheck(check.id, !check.checked);
+      setRollbackChecks((items) => items.map((item) => item.id === updated.id ? updated : item));
+      setError("");
+    } catch {
+      setError("rollback checklist 저장 실패");
+    }
   };
 
   return (
@@ -96,56 +107,119 @@ const Home = () => {
         <p className="max-w-2xl text-zinc-700">
           배포 이력, 장애 상태, rollback checklist, MTTR 지표를 연결해 운영자가 복구 판단을 이어갈 수 있게 한다.
         </p>
+        {error ? <p className="text-sm font-medium text-red-700">{error}</p> : null}
       </header>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <article className="rounded-lg border p-5">
+        <article className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-zinc-600">Average MTTR</p>
-          <strong className="text-3xl">{averageMttr}m</strong>
+          <strong className="text-3xl">{formatDuration(averageMttr)}</strong>
         </article>
-        <article className="rounded-lg border p-5">
+        <article className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-zinc-600">Latest deploy</p>
           <strong className="text-3xl">{deployEvents[0]?.status ?? "UNKNOWN"}</strong>
         </article>
-        <article className="rounded-lg border p-5">
+        <article className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-zinc-600">Rollback checks</p>
           <strong className="text-3xl">{completion}</strong>
         </article>
       </div>
 
-      <section className="rounded-lg border">
-        <div className="border-b bg-zinc-50 px-5 py-3 font-medium">Deploy history</div>
-        <div className="divide-y">
+      <section className={panelClassName}>
+        <div className={panelHeaderClassName}>Deploy targets</div>
+        <form className="grid gap-3 border-b border-zinc-200 p-5 md:grid-cols-6" onSubmit={registerDeployTarget}>
+          <input
+            className="rounded-md border px-3 py-2 text-sm"
+            onChange={(event) => setTargetForm((form) => ({ ...form, serviceName: event.target.value }))}
+            placeholder="service name"
+            required
+            value={targetForm.serviceName}
+          />
+          <input
+            className="rounded-md border px-3 py-2 text-sm md:col-span-2"
+            onChange={(event) => setTargetForm((form) => ({ ...form, repositoryUrl: event.target.value }))}
+            placeholder="repository url"
+            required
+            value={targetForm.repositoryUrl}
+          />
+          <input
+            className="rounded-md border px-3 py-2 text-sm md:col-span-2"
+            onChange={(event) => setTargetForm((form) => ({ ...form, healthUrl: event.target.value }))}
+            placeholder="health url"
+            required
+            value={targetForm.healthUrl}
+          />
+          <input
+            className="rounded-md border px-3 py-2 text-sm"
+            onChange={(event) => setTargetForm((form) => ({ ...form, namespace: event.target.value }))}
+            placeholder="namespace"
+            required
+            value={targetForm.namespace}
+          />
+          <button className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white" type="submit">
+            등록
+          </button>
+        </form>
+        <div className="divide-y divide-zinc-100">
+          {deployTargets.map((target) => (
+            <article className={rowClassName} key={target.id}>
+              <div className="min-w-0">
+                <h2 className="font-semibold">{target.serviceName}</h2>
+                <p className={mutedTextClassName}>{target.namespace} · {target.environment}</p>
+                <p className={mutedTextClassName}>{target.repositoryUrl}</p>
+                <p className={mutedTextClassName}>{target.healthUrl}</p>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className={badgeClassName}>{target.runtimeStatus}</span>
+                <button
+                  className={secondaryButtonClassName}
+                  onClick={() => removeDeployTarget(target.id)}
+                  type="button"
+                >
+                  삭제
+                </button>
+              </div>
+            </article>
+          ))}
+          {deployTargets.length === 0 ? <p className="px-5 py-4 text-sm text-zinc-600">등록된 배포 대상 없음</p> : null}
+        </div>
+      </section>
+
+      <section className={panelClassName}>
+        <div className={panelHeaderClassName}>Deploy history</div>
+        <div className="divide-y divide-zinc-100">
           {deployEvents.map((event) => (
-            <article className="grid gap-2 px-5 py-4 md:grid-cols-[1fr_auto]" key={event.id}>
-              <div>
+            <article className={rowClassName} key={event.id}>
+              <div className="min-w-0">
                 <h2 className="font-semibold">{event.serviceName}</h2>
-                <p className="text-sm text-zinc-600">{event.imageTag} · {event.commitSha} · {event.deployedAt}</p>
+                <p className={mutedTextClassName}>{event.imageTag} · {event.commitSha} · {event.deployedAt}</p>
               </div>
-              <span className="rounded-full bg-zinc-900 px-3 py-1 text-sm text-white">{event.status}</span>
+              <span className={badgeClassName}>{event.status}</span>
             </article>
           ))}
+          {deployEvents.length === 0 ? <p className="px-5 py-4 text-sm text-zinc-600">배포 이벤트 없음</p> : null}
         </div>
       </section>
 
-      <section className="rounded-lg border">
-        <div className="border-b bg-zinc-50 px-5 py-3 font-medium">Incident queue</div>
-        <div className="divide-y">
+      <section className={panelClassName}>
+        <div className={panelHeaderClassName}>Incident queue</div>
+        <div className="divide-y divide-zinc-100">
           {incidents.map((incident) => (
-            <article className="grid gap-2 px-5 py-4 md:grid-cols-[1fr_auto]" key={incident.id}>
-              <div>
+            <article className={rowClassName} key={incident.id}>
+              <div className="min-w-0">
                 <h2 className="font-semibold">{incident.title}</h2>
-                <p className="text-sm text-zinc-600">{incident.status} · MTTR {incident.mttrMinutes}m</p>
+                <p className={mutedTextClassName}>{incident.status} · MTTR {formatDuration(incident.mttrMinutes)}</p>
               </div>
-              <span className="rounded-full bg-zinc-900 px-3 py-1 text-sm text-white">{incident.severity}</span>
+              <span className={badgeClassName}>{incident.severity}</span>
             </article>
           ))}
+          {incidents.length === 0 ? <p className="px-5 py-4 text-sm text-zinc-600">장애 이벤트 없음</p> : null}
         </div>
       </section>
 
-      <section className="rounded-lg border">
-        <div className="border-b bg-zinc-50 px-5 py-3 font-medium">Rollback checklist</div>
-        <div className="divide-y">
+      <section className={panelClassName}>
+        <div className={panelHeaderClassName}>Rollback checklist</div>
+        <div className="divide-y divide-zinc-100">
           {rollbackChecks.map((check) => (
             <label className="flex items-center gap-3 px-5 py-4 text-sm" key={check.id}>
               <input
@@ -156,8 +230,9 @@ const Home = () => {
               <span>{check.item}</span>
             </label>
           ))}
+          {rollbackChecks.length === 0 ? <p className="px-5 py-4 text-sm text-zinc-600">rollback checklist 없음</p> : null}
         </div>
-        <p className="border-t px-5 py-3 text-sm text-zinc-600">Active incident: {activeIncident?.title}</p>
+        <p className="border-t border-zinc-200 px-5 py-3 text-sm text-zinc-600">Active incident: {activeIncident?.title ?? "없음"}</p>
       </section>
     </main>
   );
