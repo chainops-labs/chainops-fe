@@ -34,6 +34,8 @@ const Home = () => {
   const [rollbackChecks, setRollbackChecks] = useState<RollbackCheck[]>([]);
   const [averageMttr, setAverageMttr] = useState(0);
   const [error, setError] = useState("");
+  const [deployStatusFilter, setDeployStatusFilter] = useState("ALL");
+  const [incidentStatusFilter, setIncidentStatusFilter] = useState("ALL");
   const [targetForm, setTargetForm] = useState(emptyTargetForm);
 
   const activeIncident = incidents[0];
@@ -41,6 +43,16 @@ const Home = () => {
     const checked = rollbackChecks.filter((item) => item.checked).length;
     return `${checked}/${rollbackChecks.length}`;
   }, [rollbackChecks]);
+  const runningTargetCount = useMemo(
+    () => deployTargets.filter((target) => target.runtimeStatus === "UP").length,
+    [deployTargets],
+  );
+  const filteredDeployEvents = useMemo(() => deployEvents.filter((event) => (
+    deployStatusFilter === "ALL" || event.status === deployStatusFilter
+  )), [deployEvents, deployStatusFilter]);
+  const filteredIncidents = useMemo(() => incidents.filter((incident) => (
+    incidentStatusFilter === "ALL" || incident.status === incidentStatusFilter
+  )), [incidents, incidentStatusFilter]);
 
   useEffect(() => {
     const load = async () => {
@@ -105,7 +117,7 @@ const Home = () => {
         <p className="text-sm font-semibold uppercase tracking-wide text-violet-700">GitOps incident operations</p>
         <h1 className="text-4xl font-semibold">ChainOps deployment and MTTR console</h1>
         <p className="max-w-2xl text-zinc-700">
-          배포 이력, 장애 상태, rollback checklist, MTTR 지표를 연결해 운영자가 복구 판단을 이어갈 수 있게 한다.
+          배포 대상의 현재 상태, 최근 배포 이력, 장애 감지와 복구 진행도를 한 화면에서 판단하는 운영 콘솔 UI다.
         </p>
         {error ? <p className="text-sm font-medium text-red-700">{error}</p> : null}
       </header>
@@ -116,12 +128,12 @@ const Home = () => {
           <strong className="text-3xl">{formatDuration(averageMttr)}</strong>
         </article>
         <article className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-zinc-600">Latest deploy</p>
-          <strong className="text-3xl">{deployEvents[0]?.status ?? "UNKNOWN"}</strong>
+          <p className="text-sm text-zinc-600">Running targets</p>
+          <strong className="text-3xl">{runningTargetCount}/{deployTargets.length}</strong>
         </article>
         <article className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-zinc-600">Rollback checks</p>
-          <strong className="text-3xl">{completion}</strong>
+          <p className="text-sm text-zinc-600">Latest deploy state</p>
+          <strong className="text-3xl">{deployEvents[0]?.status ?? "UNKNOWN"}</strong>
         </article>
       </div>
 
@@ -129,6 +141,7 @@ const Home = () => {
         <div className={panelHeaderClassName}>Deploy targets</div>
         <form className="grid gap-3 border-b border-zinc-200 p-5 md:grid-cols-6" onSubmit={registerDeployTarget}>
           <input
+            aria-label="Service name"
             className="rounded-md border px-3 py-2 text-sm"
             onChange={(event) => setTargetForm((form) => ({ ...form, serviceName: event.target.value }))}
             placeholder="service name"
@@ -136,6 +149,7 @@ const Home = () => {
             value={targetForm.serviceName}
           />
           <input
+            aria-label="Repository URL"
             className="rounded-md border px-3 py-2 text-sm md:col-span-2"
             onChange={(event) => setTargetForm((form) => ({ ...form, repositoryUrl: event.target.value }))}
             placeholder="repository url"
@@ -143,6 +157,7 @@ const Home = () => {
             value={targetForm.repositoryUrl}
           />
           <input
+            aria-label="Health URL"
             className="rounded-md border px-3 py-2 text-sm md:col-span-2"
             onChange={(event) => setTargetForm((form) => ({ ...form, healthUrl: event.target.value }))}
             placeholder="health url"
@@ -150,6 +165,7 @@ const Home = () => {
             value={targetForm.healthUrl}
           />
           <input
+            aria-label="Namespace"
             className="rounded-md border px-3 py-2 text-sm"
             onChange={(event) => setTargetForm((form) => ({ ...form, namespace: event.target.value }))}
             placeholder="namespace"
@@ -186,9 +202,23 @@ const Home = () => {
       </section>
 
       <section className={panelClassName}>
-        <div className={panelHeaderClassName}>Deploy history</div>
+        <div className="grid gap-3 border-b border-zinc-200 bg-zinc-50 px-5 py-3 md:grid-cols-[1fr_auto] md:items-center">
+          <div className="font-medium">Deploy history</div>
+          <select
+            aria-label="Deploy history status filter"
+            className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+            onChange={(event) => setDeployStatusFilter(event.target.value)}
+            value={deployStatusFilter}
+          >
+            <option value="ALL">전체 상태</option>
+            <option value="SYNCED">SYNCED</option>
+            <option value="RUNNING">RUNNING</option>
+            <option value="DEGRADED">DEGRADED</option>
+            <option value="FAILED">FAILED</option>
+          </select>
+        </div>
         <div className="divide-y divide-zinc-100">
-          {deployEvents.map((event) => (
+          {filteredDeployEvents.map((event) => (
             <article className={rowClassName} key={event.id}>
               <div className="min-w-0">
                 <h2 className="font-semibold">{event.serviceName}</h2>
@@ -197,14 +227,27 @@ const Home = () => {
               <span className={badgeClassName}>{event.status}</span>
             </article>
           ))}
-          {deployEvents.length === 0 ? <p className="px-5 py-4 text-sm text-zinc-600">배포 이벤트 없음</p> : null}
+          {filteredDeployEvents.length === 0 ? <p className="px-5 py-4 text-sm text-zinc-600">현재 조건에 맞는 배포 이벤트 없음</p> : null}
         </div>
       </section>
 
       <section className={panelClassName}>
-        <div className={panelHeaderClassName}>Incident queue</div>
+        <div className="grid gap-3 border-b border-zinc-200 bg-zinc-50 px-5 py-3 md:grid-cols-[1fr_auto] md:items-center">
+          <div className="font-medium">Incident queue</div>
+          <select
+            aria-label="Incident status filter"
+            className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+            onChange={(event) => setIncidentStatusFilter(event.target.value)}
+            value={incidentStatusFilter}
+          >
+            <option value="ALL">전체 상태</option>
+            <option value="OPEN">OPEN</option>
+            <option value="ACKED">ACKED</option>
+            <option value="RESOLVED">RESOLVED</option>
+          </select>
+        </div>
         <div className="divide-y divide-zinc-100">
-          {incidents.map((incident) => (
+          {filteredIncidents.map((incident) => (
             <article className={rowClassName} key={incident.id}>
               <div className="min-w-0">
                 <h2 className="font-semibold">{incident.title}</h2>
@@ -213,12 +256,12 @@ const Home = () => {
               <span className={badgeClassName}>{incident.severity}</span>
             </article>
           ))}
-          {incidents.length === 0 ? <p className="px-5 py-4 text-sm text-zinc-600">장애 이벤트 없음</p> : null}
+          {filteredIncidents.length === 0 ? <p className="px-5 py-4 text-sm text-zinc-600">현재 조건에 맞는 장애 이벤트 없음</p> : null}
         </div>
       </section>
 
       <section className={panelClassName}>
-        <div className={panelHeaderClassName}>Rollback checklist</div>
+        <div className={panelHeaderClassName}>Rollback checklist · {completion}</div>
         <div className="divide-y divide-zinc-100">
           {rollbackChecks.map((check) => (
             <label className="flex items-center gap-3 px-5 py-4 text-sm" key={check.id}>

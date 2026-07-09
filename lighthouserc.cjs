@@ -7,7 +7,7 @@ module.exports = {
         throttlingMethod: "provided",
         preset: "desktop",
       },
-      url: ["http://127.0.0.1:3000"],
+      url: [process.env.LHCI_URL ?? "http://127.0.0.1:3002"],
     },
     assert: {
       assertions: {

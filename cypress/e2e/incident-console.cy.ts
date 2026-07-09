@@ -63,7 +63,7 @@ describe("ChainOps incident console", () => {
     cy.contains("idwallet-be:8f3a2c1").should("be.visible");
     cy.contains("Rollback checklist").should("be.visible");
     cy.contains("Argo CD sync 상태 확인").click();
-    cy.contains("Rollback checks").parent().contains("1/1").should("be.visible");
+    cy.contains("Rollback checklist").contains("1/1").should("be.visible");
   });
 
   it("registers and removes deploy targets", () => {
