@@ -4,6 +4,7 @@ module.exports = {
       numberOfRuns: 1,
       settings: {
         chromeFlags: "--no-sandbox --disable-dev-shm-usage",
+        throttlingMethod: "provided",
         preset: "desktop",
       },
       url: ["http://127.0.0.1:3000"],
